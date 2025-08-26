@@ -1,0 +1,174 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>Text Replacer</title>
+    </head>
+    <body>
+        <h1>Text Replacer</h1>
+        <input type="checkbox" id="toggle" checked>
+        <label for="toggle">Silent</label>
+        <br>
+        <textarea id="inputText" rows="10" cols="50" placeholder="Enter text here..."></textarea><br>
+        <p id="output"></p>
+        <button onclick="navigator.clipboard.writeText(output.textContent)">Copy to Clipboard</button>
+    </body>
+    <script>
+        const inputText = document.getElementById('inputText');
+        const output = document.getElementById('output');
+        const toggle = document.getElementById('toggle');
+
+        let char = {};
+        const RAW_URL = 'https://gist.githubusercontent.com/Kenna-Blackburn/571cada7154dee0c9bedc87786c691a3/raw';
+
+        async function loadChars(url = RAW_URL, usernameField = 'username') {
+        function parseCSVToObjects(csvText, delimiter = ',') {
+            const rows = [];
+            let cur = '', row = [], i = 0, inQuotes = false;
+            const pushCell = () => { row.push(cur); cur = ''; };
+            while (i < csvText.length) {
+            const ch = csvText[i];
+            if (ch === '"') {
+                if (inQuotes && csvText[i+1] === '"') { cur += '"'; i += 2; continue; }
+                inQuotes = !inQuotes; i++; continue;
+            }
+            if (!inQuotes && ch === delimiter) { pushCell(); i++; continue; }
+            if (!inQuotes && (ch === '\n' || (ch === '\r' && csvText[i+1] === '\n'))) {
+                pushCell(); rows.push(row); row = []; i++; if (ch === '\r' && csvText[i] === '\n') i++; continue;
+            }
+            cur += ch; i++;
+            }
+            if (cur !== '' || row.length > 0) pushCell();
+            if (row.length) rows.push(row);
+            if (rows.length === 0) return [];
+            const headers = rows[0].map(h => h.trim());
+            const out = [];
+            for (let r = 1; r < rows.length; r++) {
+            const cells = rows[r];
+            if (cells.every(c => c === '')) continue;
+            const obj = {};
+            for (let c = 0; c < headers.length; c++) {
+                obj[headers[c] || `field${c}`] = cells[c] !== undefined ? cells[c] : '';
+            }
+            out.push(obj);
+            }
+            return out;
+        }
+
+        const warnings = [];
+        const res = await fetch(url);
+        if (!res.ok) {
+            const msg = 'Fetch error: ' + res.status;
+            warnings.push(msg);
+            console.warn(msg);
+            return { char: {}, warnings };
+        }
+        const text = await res.text();
+        const rows = parseCSVToObjects(text);
+
+        const char = {};
+        const dupIndex = {};
+        const duplicates = {};
+
+        rows.forEach((row, idx) => {
+            const raw = row[usernameField];
+            if (raw === undefined) {
+            const msg = `Row ${idx + 2}: missing username field "${usernameField}".`;
+            warnings.push(msg);
+            console.warn(msg);
+            }
+
+            // Normalize username: trim and collapse internal whitespace
+            const trimmed = raw !== undefined ? String(raw).trim().replace(/\s+/g, ' ') : '';
+            if (raw !== undefined && String(raw) !== trimmed) {
+            const msg = `Row ${idx + 2}: username normalized from "${raw}" to "${trimmed}".`;
+            warnings.push(msg);
+            console.warn(msg);
+            }
+
+            const base = trimmed === '' ? '(empty)' : trimmed;
+
+            if (!char.hasOwnProperty(base)) {
+            char[base] = row;
+            dupIndex[base] = 1;
+            } else {
+            dupIndex[base] += 1;
+            const suffix = '#' + dupIndex[base];
+            const newKey = base + suffix;
+            char[newKey] = row;
+
+            if (!duplicates[base]) duplicates[base] = [ char[base] ];
+            duplicates[base].push(row);
+
+            const msg = `Duplicate username "${base}" at row ${idx + 2} stored as "${newKey}".`;
+            warnings.push(msg);
+            console.warn(msg);
+            }
+        });
+
+        Object.defineProperty(char, '_duplicates', {
+            value: duplicates,
+            writable: false,
+            enumerable: false,
+            configurable: false
+        });
+
+        if (warnings.length > 0) {
+            const summary = `Warnings: ${warnings.length} issue(s) found.`;
+            console.warn(summary);
+        }
+
+        return { char, warnings };
+        }
+
+        function getChars(){
+            loadChars().then(result => {
+                char = result.char;
+                if (Object.keys(char).length === 0) {
+                    console.warn('No data loaded.');
+                } else {
+                    console.log(`Loaded ${Object.keys(char).length}.`);
+                }
+            }).catch(err => {
+                console.error('Error loading data:', err);
+            });
+
+            // turn into discord pings:
+            for (let key in char) {
+                let id = char[key]['id'];
+                if (id) {
+                    char[key] = `<@${id}>`;
+                } else {
+                    char[key] = key; // fallback to name if no id
+                }
+            }
+        }
+
+        window.onload = getChars;
+
+        function updateText(){
+            let text = inputText.value;
+            let charmap = char=={} ? char : {
+                'a': '<@1242289743874752566>',
+                'b': '<@892431734971449384>',
+                'c': '<@739834419598065694>',
+                'e': '<@865628079497674773>',
+                'h': '<@1308822394193838240>',
+                'k': '<@534806202698432514>',
+                'o': '<@665317951552880651>',
+                's': '<@698558975146459217>'
+            };
+            let n = "";
+            if (toggle.checked) {
+                n = "@silent ";
+            }
+            for (let c of text) {
+                n += charmap[c] ?? c
+            }
+            output.textContent = n;
+        }
+
+        inputText.addEventListener('input', updateText);
+        toggle.addEventListener('change', updateText);
+    </script>
+</html>
